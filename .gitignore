@@ -54,6 +54,7 @@ Thumbs.db
 uploads/
 *.dcm
 *.dicom
+test_dicom_series/
 
 # Logs
 *.log

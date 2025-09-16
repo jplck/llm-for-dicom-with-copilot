@@ -9,6 +9,8 @@ from PIL import Image
 import numpy as np
 import io
 import base64
+import json
+from markupsafe import Markup
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'dicom-viewer-secret-key'
@@ -17,6 +19,11 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 
 # Create upload directory if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Add custom JSON filter for templates
+@app.template_filter('tojsonfilter')
+def to_json_filter(obj):
+    return Markup(json.dumps(obj))
 
 def is_dicom_file(filepath):
     """Check if a file is a DICOM file."""
@@ -87,6 +94,10 @@ def extract_dicom_info(dicom_path):
             'modality': str(getattr(ds, 'Modality', 'Unknown')),
             'series_description': str(getattr(ds, 'SeriesDescription', 'Unknown')),
             'institution_name': str(getattr(ds, 'InstitutionName', 'Unknown')),
+            'series_instance_uid': str(getattr(ds, 'SeriesInstanceUID', 'Unknown')),
+            'instance_number': int(getattr(ds, 'InstanceNumber', 0)),
+            'slice_location': float(getattr(ds, 'SliceLocation', 0)) if hasattr(ds, 'SliceLocation') else 0,
+            'image_position_patient': list(getattr(ds, 'ImagePositionPatient', [0, 0, 0])) if hasattr(ds, 'ImagePositionPatient') else [0, 0, 0],
         }
         
         if hasattr(ds, 'pixel_array'):
@@ -155,7 +166,7 @@ def upload_files():
 
 @app.route('/gallery/<session_id>')
 def gallery(session_id):
-    """Display DICOM images in a gallery."""
+    """Display DICOM images in a stacked viewer with slider."""
     session_dir = os.path.join(app.config['UPLOAD_FOLDER'], session_id)
     
     if not os.path.exists(session_dir):
@@ -170,25 +181,55 @@ def gallery(session_id):
             if is_dicom_file(fpath):
                 dicom_files.append(fpath)
     
-    # Process DICOM files for display
-    images_data = []
+    # Process DICOM files and group by series
+    series_groups = {}
     for dicom_path in dicom_files:
-        # Convert DICOM to image
-        image = dicom_to_image(dicom_path)
-        if image:
-            # Convert to base64 for web display
-            image_b64 = image_to_base64(image)
+        # Extract metadata first to get series info
+        info = extract_dicom_info(dicom_path)
+        if info:
+            series_uid = info.get('series_instance_uid', 'Unknown')
             
-            # Extract metadata
-            info = extract_dicom_info(dicom_path)
-            
-            images_data.append({
-                'filename': os.path.basename(dicom_path),
-                'image_data': image_b64,
-                'info': info
-            })
+            # Convert DICOM to image
+            image = dicom_to_image(dicom_path)
+            if image:
+                # Convert to base64 for web display
+                image_b64 = image_to_base64(image)
+                
+                image_data = {
+                    'filename': os.path.basename(dicom_path),
+                    'image_data': image_b64,
+                    'info': info
+                }
+                
+                if series_uid not in series_groups:
+                    series_groups[series_uid] = []
+                series_groups[series_uid].append(image_data)
     
-    return render_template('gallery.html', images=images_data, session_id=session_id)
+    # Sort images within each series by instance number, slice location, or z-position
+    for series_uid in series_groups:
+        series_groups[series_uid].sort(key=lambda x: (
+            x['info'].get('instance_number', 0),
+            x['info'].get('slice_location', 0),
+            x['info'].get('image_position_patient', [0, 0, 0])[2] if len(x['info'].get('image_position_patient', [])) > 2 else 0
+        ))
+    
+    # For simplicity, use the first (or largest) series for display
+    if series_groups:
+        # Get the series with the most images
+        main_series_uid = max(series_groups.keys(), key=lambda k: len(series_groups[k]))
+        images = series_groups[main_series_uid]
+        
+        # Add series information
+        series_info = {
+            'total_series': len(series_groups),
+            'current_series': main_series_uid,
+            'total_images': len(images)
+        }
+    else:
+        images = []
+        series_info = {'total_series': 0, 'current_series': None, 'total_images': 0}
+    
+    return render_template('gallery.html', images=images, session_id=session_id, series_info=series_info)
 
 @app.route('/cleanup/<session_id>', methods=['POST'])
 def cleanup_session(session_id):
