@@ -81,6 +81,31 @@
                                 <div class="col-md-3"><strong>Modality:</strong> {{ images[0].info.modality }}</div>
                             {% endif %}
                         </div>
+                        
+                        <!-- Series Selector -->
+                        {% if series_info.total_series > 1 %}
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <label for="seriesSelector" class="form-label"><strong>Select Series:</strong></label>
+                                    <select id="seriesSelector" class="form-select" onchange="switchSeries(this.value)">
+                                        {% for series in series_info.series_list %}
+                                            <option value="{{ series.uid }}" 
+                                                    {% if series.uid == series_info.current_series %}selected{% endif %}>
+                                                Series {{ series.series_number }}: {{ series.description }} 
+                                                ({{ series.modality }}, {{ series.count }} images)
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mt-4">
+                                        <small class="text-muted">
+                                            Use the dropdown above to switch between different DICOM series.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
                     </div>
                     
                     <!-- Image Viewer -->
@@ -389,6 +414,32 @@
                     break;
             }
         });
+        
+        // Series switching function
+        function switchSeries(seriesUid) {
+            if (!seriesUid) {
+                console.warn('No series UID provided for switching');
+                return;
+            }
+            
+            // Stop playback if currently playing
+            if (isPlaying) {
+                stopPlayback();
+            }
+            
+            // Construct URL with series parameter
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('series', seriesUid);
+            
+            // Show loading indicator
+            const imageElement = document.getElementById('dicomImage');
+            if (imageElement) {
+                imageElement.style.opacity = '0.5';
+            }
+            
+            // Navigate to the new URL
+            window.location.href = currentUrl.toString();
+        }
         
         // Initialize
         if (isImagesAvailable()) {
