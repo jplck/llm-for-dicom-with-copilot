@@ -172,35 +172,64 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // DICOM Image Data
-        const images = {{ images | tojsonfilter }};
+        const images = {{ images | tojsonfilter }} || [];
         let currentSliceIndex = 0;
         let isPlaying = false;
         let playbackInterval = null;
         let playbackSpeed = 3; // FPS
         
+        // Guard function to check if images are available
+        function isImagesAvailable() {
+            return images && Array.isArray(images) && images.length > 0;
+        }
+        
         function goToSlice(index) {
+            if (!isImagesAvailable()) {
+                console.warn('No images available for navigation');
+                return;
+            }
+            
             index = parseInt(index);
             if (index < 0 || index >= images.length) return;
             
             currentSliceIndex = index;
             
-            // Update image
-            document.getElementById('dicomImage').src = images[index].image_data;
-            
-            // Update slice info
-            document.getElementById('currentSlice').textContent = index + 1;
-            document.getElementById('sliceSlider').value = index;
-            
-            // Update metadata
-            updateMetadata(images[index]);
-            
-            // Update button states
-            updateButtonStates();
+            try {
+                // Update image
+                const imageElement = document.getElementById('dicomImage');
+                if (imageElement && images[index] && images[index].image_data) {
+                    imageElement.src = images[index].image_data;
+                }
+                
+                // Update slice info
+                const currentSliceElement = document.getElementById('currentSlice');
+                if (currentSliceElement) {
+                    currentSliceElement.textContent = index + 1;
+                }
+                
+                const sliceSliderElement = document.getElementById('sliceSlider');
+                if (sliceSliderElement) {
+                    sliceSliderElement.value = index;
+                }
+                
+                // Update metadata
+                updateMetadata(images[index]);
+                
+                // Update button states
+                updateButtonStates();
+            } catch (error) {
+                console.error('Error in goToSlice:', error);
+            }
         }
         
         function updateMetadata(imageData) {
-            if (imageData.info) {
-                document.getElementById('metaFilename').textContent = imageData.filename;
+            if (!imageData || !imageData.info) {
+                console.warn('No image metadata available');
+                return;
+            }
+            
+            try {
+                document.getElementById('metaFilename').textContent = imageData.filename || 'Unknown';
                 document.getElementById('metaPatientName').textContent = imageData.info.patient_name || 'Unknown';
                 document.getElementById('metaPatientId').textContent = imageData.info.patient_id || 'Unknown';
                 document.getElementById('metaStudyDate').textContent = imageData.info.study_date || 'Unknown';
@@ -208,31 +237,59 @@
                 document.getElementById('metaSliceLocation').textContent = parseFloat(imageData.info.slice_location || 0).toFixed(2);
                 document.getElementById('metaSeriesDescription').textContent = imageData.info.series_description || 'Unknown';
                 if (imageData.info.image_size) {
-                    document.getElementById('metaImageSize').textContent = imageData.info.image_size;
+                    const imageSizeElement = document.getElementById('metaImageSize');
+                    if (imageSizeElement) {
+                        imageSizeElement.textContent = imageData.info.image_size;
+                    }
                 }
+            } catch (error) {
+                console.error('Error updating metadata:', error);
             }
         }
         
         function updateButtonStates() {
-            document.getElementById('firstBtn').disabled = currentSliceIndex === 0;
-            document.getElementById('prevBtn').disabled = currentSliceIndex === 0;
-            document.getElementById('nextBtn').disabled = currentSliceIndex === images.length - 1;
-            document.getElementById('lastBtn').disabled = currentSliceIndex === images.length - 1;
+            if (!isImagesAvailable()) {
+                return;
+            }
+            
+            try {
+                document.getElementById('firstBtn').disabled = currentSliceIndex === 0;
+                document.getElementById('prevBtn').disabled = currentSliceIndex === 0;
+                document.getElementById('nextBtn').disabled = currentSliceIndex === images.length - 1;
+                document.getElementById('lastBtn').disabled = currentSliceIndex === images.length - 1;
+            } catch (error) {
+                console.error('Error updating button states:', error);
+            }
         }
         
         function nextSlice() {
+            if (!isImagesAvailable()) {
+                console.warn('No images available for navigation');
+                return;
+            }
+            
             if (currentSliceIndex < images.length - 1) {
                 goToSlice(currentSliceIndex + 1);
             }
         }
         
         function previousSlice() {
+            if (!isImagesAvailable()) {
+                console.warn('No images available for navigation');
+                return;
+            }
+            
             if (currentSliceIndex > 0) {
                 goToSlice(currentSliceIndex - 1);
             }
         }
         
         function togglePlayback() {
+            if (!isImagesAvailable()) {
+                console.warn('No images available for playback');
+                return;
+            }
+            
             if (isPlaying) {
                 stopPlayback();
             } else {
@@ -241,44 +298,74 @@
         }
         
         function startPlayback() {
-            isPlaying = true;
-            document.getElementById('playBtn').innerHTML = '⏸ Pause';
-            document.getElementById('playBtn').className = 'btn btn-warning btn-nav';
+            if (!isImagesAvailable()) {
+                console.warn('No images available for playback');
+                return;
+            }
             
-            playbackInterval = setInterval(() => {
-                if (currentSliceIndex < images.length - 1) {
-                    nextSlice();
-                } else {
-                    // Loop back to start
-                    goToSlice(0);
+            try {
+                isPlaying = true;
+                const playBtn = document.getElementById('playBtn');
+                if (playBtn) {
+                    playBtn.innerHTML = '⏸ Pause';
+                    playBtn.className = 'btn btn-warning btn-nav';
                 }
-            }, 1000 / playbackSpeed);
+                
+                playbackInterval = setInterval(() => {
+                    if (currentSliceIndex < images.length - 1) {
+                        nextSlice();
+                    } else {
+                        // Loop back to start
+                        goToSlice(0);
+                    }
+                }, 1000 / playbackSpeed);
+            } catch (error) {
+                console.error('Error starting playback:', error);
+            }
         }
         
         function stopPlayback() {
-            isPlaying = false;
-            document.getElementById('playBtn').innerHTML = '▶ Play';
-            document.getElementById('playBtn').className = 'btn btn-success btn-nav';
-            
-            if (playbackInterval) {
-                clearInterval(playbackInterval);
-                playbackInterval = null;
+            try {
+                isPlaying = false;
+                const playBtn = document.getElementById('playBtn');
+                if (playBtn) {
+                    playBtn.innerHTML = '▶ Play';
+                    playBtn.className = 'btn btn-success btn-nav';
+                }
+                
+                if (playbackInterval) {
+                    clearInterval(playbackInterval);
+                    playbackInterval = null;
+                }
+            } catch (error) {
+                console.error('Error stopping playback:', error);
             }
         }
         
         function updatePlaybackSpeed(speed) {
-            playbackSpeed = parseInt(speed);
-            document.getElementById('speedValue').textContent = speed;
-            
-            // Restart playback with new speed if currently playing
-            if (isPlaying) {
-                stopPlayback();
-                startPlayback();
+            try {
+                playbackSpeed = parseInt(speed);
+                const speedValueElement = document.getElementById('speedValue');
+                if (speedValueElement) {
+                    speedValueElement.textContent = speed;
+                }
+                
+                // Restart playback with new speed if currently playing
+                if (isPlaying && isImagesAvailable()) {
+                    stopPlayback();
+                    startPlayback();
+                }
+            } catch (error) {
+                console.error('Error updating playback speed:', error);
             }
         }
         
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
+            if (!isImagesAvailable()) {
+                return; // Don't handle keyboard shortcuts if no images
+            }
+            
             switch(e.key) {
                 case 'ArrowLeft':
                     e.preventDefault();
@@ -304,7 +391,18 @@
         });
         
         // Initialize
-        updateButtonStates();
+        if (isImagesAvailable()) {
+            updateButtonStates();
+        }
+        
+        // Global error handler for JavaScript errors
+        window.addEventListener('error', function(e) {
+            console.error('JavaScript error:', e.error);
+            console.error('Error message:', e.message);
+            console.error('File:', e.filename);
+            console.error('Line:', e.lineno);
+            console.error('Column:', e.colno);
+        });
         
         // Add help text
         document.addEventListener('DOMContentLoaded', function() {
