@@ -93,6 +93,7 @@ def extract_dicom_info(dicom_path):
             'study_date': str(getattr(ds, 'StudyDate', 'Unknown')),
             'modality': str(getattr(ds, 'Modality', 'Unknown')),
             'series_description': str(getattr(ds, 'SeriesDescription', 'Unknown')),
+            'series_number': int(getattr(ds, 'SeriesNumber', 0)),
             'institution_name': str(getattr(ds, 'InstitutionName', 'Unknown')),
             'series_instance_uid': str(getattr(ds, 'SeriesInstanceUID', 'Unknown')),
             'instance_number': int(getattr(ds, 'InstanceNumber', 0)),
@@ -173,6 +174,9 @@ def gallery(session_id):
         flash('Session not found')
         return redirect(url_for('index'))
     
+    # Get selected series from query parameter
+    selected_series = request.args.get('series')
+    
     # Find all DICOM files in the session directory
     dicom_files = []
     for root, dirs, files in os.walk(session_dir):
@@ -183,11 +187,20 @@ def gallery(session_id):
     
     # Process DICOM files and group by series
     series_groups = {}
+    series_metadata = {}
     for dicom_path in dicom_files:
         # Extract metadata first to get series info
         info = extract_dicom_info(dicom_path)
         if info:
             series_uid = info.get('series_instance_uid', 'Unknown')
+            
+            # Store series metadata for dropdown
+            if series_uid not in series_metadata:
+                series_metadata[series_uid] = {
+                    'series_description': info.get('series_description', 'Unknown'),
+                    'modality': info.get('modality', 'Unknown'),
+                    'series_number': info.get('series_number', 0)
+                }
             
             # Convert DICOM to image
             image = dicom_to_image(dicom_path)
@@ -213,21 +226,40 @@ def gallery(session_id):
             x['info'].get('image_position_patient', [0, 0, 0])[2] if len(x['info'].get('image_position_patient', [])) > 2 else 0
         ))
     
-    # For simplicity, use the first (or largest) series for display
+    # Determine which series to display
     if series_groups:
-        # Get the series with the most images
-        main_series_uid = max(series_groups.keys(), key=lambda k: len(series_groups[k]))
+        if selected_series and selected_series in series_groups:
+            main_series_uid = selected_series
+        else:
+            # Default to the series with the most images
+            main_series_uid = max(series_groups.keys(), key=lambda k: len(series_groups[k]))
+        
         images = series_groups[main_series_uid]
+        
+        # Create series list for dropdown
+        series_list = []
+        for uid, metadata in series_metadata.items():
+            series_list.append({
+                'uid': uid,
+                'description': metadata['series_description'],
+                'modality': metadata['modality'],
+                'count': len(series_groups.get(uid, [])),
+                'series_number': metadata.get('series_number', 0)
+            })
+        
+        # Sort series by series number
+        series_list.sort(key=lambda x: x['series_number'])
         
         # Add series information
         series_info = {
             'total_series': len(series_groups),
             'current_series': main_series_uid,
-            'total_images': len(images)
+            'total_images': len(images),
+            'series_list': series_list
         }
     else:
         images = []
-        series_info = {'total_series': 0, 'current_series': None, 'total_images': 0}
+        series_info = {'total_series': 0, 'current_series': None, 'total_images': 0, 'series_list': []}
     
     return render_template('gallery.html', images=images, session_id=session_id, series_info=series_info)
 
