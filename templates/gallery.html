@@ -3,32 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DICOM Image Gallery</title>
+    <title>DICOM Image Viewer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .image-card {
-            transition: transform 0.2s;
-            cursor: pointer;
-        }
-        .image-card:hover {
-            transform: scale(1.05);
+        .dicom-viewer {
+            background-color: #000;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
         }
         .dicom-image {
-            width: 100%;
-            height: 200px;
+            max-width: 100%;
+            max-height: 70vh;
             object-fit: contain;
-            background-color: #f8f9fa;
+            background-color: #000;
+            border-radius: 8px;
         }
-        .info-panel {
+        .controls-panel {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .slice-slider {
+            width: 100%;
+            margin: 15px 0;
+        }
+        .slice-info {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .metadata-panel {
             background-color: #f8f9fa;
             border-radius: 10px;
             padding: 15px;
-            margin-bottom: 20px;
+            margin-top: 20px;
         }
-        .modal-img {
-            max-width: 100%;
-            max-height: 80vh;
-            object-fit: contain;
+        .navigation-buttons {
+            text-align: center;
+            margin: 15px 0;
+        }
+        .btn-nav {
+            margin: 0 5px;
+            min-width: 80px;
+        }
+        .viewer-container {
+            text-align: center;
         }
     </style>
 </head>
@@ -37,7 +58,7 @@
         <div class="row">
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2>DICOM Image Gallery</h2>
+                    <h2>DICOM Image Viewer</h2>
                     <div>
                         <a href="{{ url_for('index') }}" class="btn btn-primary">Upload More Files</a>
                         <form action="{{ url_for('cleanup_session', session_id=session_id) }}" method="post" class="d-inline">
@@ -49,82 +70,93 @@
                 </div>
                 
                 {% if images %}
-                    <div class="info-panel">
-                        <h5>📊 Gallery Summary</h5>
-                        <p><strong>Total Images:</strong> {{ images|length }}</p>
-                        {% if images[0].info %}
-                            <div class="row">
+                    <!-- Series Information -->
+                    <div class="controls-panel">
+                        <h5>📊 Series Information</h5>
+                        <div class="row">
+                            <div class="col-md-3"><strong>Total Series:</strong> {{ series_info.total_series }}</div>
+                            <div class="col-md-3"><strong>Images in Series:</strong> {{ series_info.total_images }}</div>
+                            {% if images[0].info %}
                                 <div class="col-md-3"><strong>Patient:</strong> {{ images[0].info.patient_name }}</div>
-                                <div class="col-md-3"><strong>Patient ID:</strong> {{ images[0].info.patient_id }}</div>
-                                <div class="col-md-3"><strong>Study Date:</strong> {{ images[0].info.study_date }}</div>
-                                <div class="col-md-3"><strong>Institution:</strong> {{ images[0].info.institution_name }}</div>
-                            </div>
-                        {% endif %}
+                                <div class="col-md-3"><strong>Modality:</strong> {{ images[0].info.modality }}</div>
+                            {% endif %}
+                        </div>
                     </div>
                     
-                    <div class="row">
-                        {% for image in images %}
-                            <div class="col-lg-3 col-md-4 col-sm-6 mb-4">
-                                <div class="card image-card" data-bs-toggle="modal" data-bs-target="#imageModal{{ loop.index }}">
-                                    <img src="{{ image.image_data }}" class="card-img-top dicom-image" alt="{{ image.filename }}">
-                                    <div class="card-body">
-                                        <h6 class="card-title">{{ image.filename }}</h6>
-                                        {% if image.info %}
-                                            <small class="text-muted">
-                                                <div><strong>Modality:</strong> {{ image.info.modality }}</div>
-                                                <div><strong>Series:</strong> {{ image.info.series_description }}</div>
-                                                {% if image.info.image_size %}
-                                                    <div><strong>Size:</strong> {{ image.info.image_size }}</div>
-                                                {% endif %}
-                                            </small>
-                                        {% endif %}
-                                    </div>
+                    <!-- Image Viewer -->
+                    <div class="viewer-container">
+                        <div class="dicom-viewer">
+                            <img id="dicomImage" src="{{ images[0].image_data }}" class="dicom-image" alt="DICOM Image">
+                        </div>
+                        
+                        <!-- Navigation Controls -->
+                        <div class="controls-panel">
+                            <div class="slice-info">
+                                <span id="sliceInfo">Slice <span id="currentSlice">1</span> of {{ images|length }}</span>
+                            </div>
+                            
+                            <!-- Navigation Buttons -->
+                            <div class="navigation-buttons">
+                                <button id="firstBtn" class="btn btn-outline-secondary btn-nav" onclick="goToSlice(0)">⏪ First</button>
+                                <button id="prevBtn" class="btn btn-outline-primary btn-nav" onclick="previousSlice()">◀ Prev</button>
+                                <button id="playBtn" class="btn btn-success btn-nav" onclick="togglePlayback()">▶ Play</button>
+                                <button id="nextBtn" class="btn btn-outline-primary btn-nav" onclick="nextSlice()">Next ▶</button>
+                                <button id="lastBtn" class="btn btn-outline-secondary btn-nav" onclick="goToSlice({{ images|length - 1 }})">Last ⏩</button>
+                            </div>
+                            
+                            <!-- Slice Slider -->
+                            <div class="row">
+                                <div class="col-12">
+                                    <input type="range" id="sliceSlider" class="form-range slice-slider" 
+                                           min="0" max="{{ images|length - 1 }}" value="0" 
+                                           onchange="goToSlice(this.value)" oninput="goToSlice(this.value)">
                                 </div>
                             </div>
                             
-                            <!-- Modal for each image -->
-                            <div class="modal fade" id="imageModal{{ loop.index }}" tabindex="-1">
-                                <div class="modal-dialog modal-xl">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">{{ image.filename }}</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body text-center">
-                                            <img src="{{ image.image_data }}" class="modal-img" alt="{{ image.filename }}">
-                                            
-                                            {% if image.info %}
-                                                <div class="mt-4">
-                                                    <h6>DICOM Metadata:</h6>
-                                                    <div class="row text-start">
-                                                        <div class="col-md-6">
-                                                            <table class="table table-sm">
-                                                                <tr><td><strong>Patient Name:</strong></td><td>{{ image.info.patient_name }}</td></tr>
-                                                                <tr><td><strong>Patient ID:</strong></td><td>{{ image.info.patient_id }}</td></tr>
-                                                                <tr><td><strong>Study Date:</strong></td><td>{{ image.info.study_date }}</td></tr>
-                                                            </table>
-                                                        </div>
-                                                        <div class="col-md-6">
-                                                            <table class="table table-sm">
-                                                                <tr><td><strong>Modality:</strong></td><td>{{ image.info.modality }}</td></tr>
-                                                                <tr><td><strong>Series Description:</strong></td><td>{{ image.info.series_description }}</td></tr>
-                                                                <tr><td><strong>Institution:</strong></td><td>{{ image.info.institution_name }}</td></tr>
-                                                                {% if image.info.image_size %}
-                                                                    <tr><td><strong>Image Size:</strong></td><td>{{ image.info.image_size }}</td></tr>
-                                                                {% endif %}
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            {% endif %}
-                                        </div>
-                                        <div class="modal-footer">
-                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                                        </div>
+                            <!-- Playback Speed -->
+                            <div class="row mt-3">
+                                <div class="col-6">
+                                    <label for="speedSlider" class="form-label">Playback Speed:</label>
+                                    <input type="range" id="speedSlider" class="form-range" min="1" max="10" value="3" onchange="updatePlaybackSpeed(this.value)">
+                                    <small class="text-muted">Speed: <span id="speedValue">3</span> FPS</small>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">Quick Navigation:</label><br>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button class="btn btn-outline-info" onclick="goToSlice(0)">Start</button>
+                                        <button class="btn btn-outline-info" onclick="goToSlice(Math.floor(({{ images|length - 1 }}) / 2))">Middle</button>
+                                        <button class="btn btn-outline-info" onclick="goToSlice({{ images|length - 1 }})">End</button>
                                     </div>
                                 </div>
                             </div>
-                        {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <!-- Current Slice Metadata -->
+                    <div class="metadata-panel">
+                        <h6>Current Slice Metadata:</h6>
+                        <div class="row" id="metadataContent">
+                            {% if images[0].info %}
+                                <div class="col-md-6">
+                                    <table class="table table-sm">
+                                        <tr><td><strong>Filename:</strong></td><td id="metaFilename">{{ images[0].filename }}</td></tr>
+                                        <tr><td><strong>Patient Name:</strong></td><td id="metaPatientName">{{ images[0].info.patient_name }}</td></tr>
+                                        <tr><td><strong>Patient ID:</strong></td><td id="metaPatientId">{{ images[0].info.patient_id }}</td></tr>
+                                        <tr><td><strong>Study Date:</strong></td><td id="metaStudyDate">{{ images[0].info.study_date }}</td></tr>
+                                    </table>
+                                </div>
+                                <div class="col-md-6">
+                                    <table class="table table-sm">
+                                        <tr><td><strong>Instance Number:</strong></td><td id="metaInstanceNumber">{{ images[0].info.instance_number }}</td></tr>
+                                        <tr><td><strong>Slice Location:</strong></td><td id="metaSliceLocation">{{ "%.2f"|format(images[0].info.slice_location) }}</td></tr>
+                                        <tr><td><strong>Series Description:</strong></td><td id="metaSeriesDescription">{{ images[0].info.series_description }}</td></tr>
+                                        {% if images[0].info.image_size %}
+                                            <tr><td><strong>Image Size:</strong></td><td id="metaImageSize">{{ images[0].info.image_size }}</td></tr>
+                                        {% endif %}
+                                    </table>
+                                </div>
+                            {% endif %}
+                        </div>
                     </div>
                 {% else %}
                     <div class="alert alert-info text-center">
@@ -138,5 +170,149 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // DICOM Image Data
+        const images = {{ images | tojsonfilter }};
+        let currentSliceIndex = 0;
+        let isPlaying = false;
+        let playbackInterval = null;
+        let playbackSpeed = 3; // FPS
+        
+        function goToSlice(index) {
+            index = parseInt(index);
+            if (index < 0 || index >= images.length) return;
+            
+            currentSliceIndex = index;
+            
+            // Update image
+            document.getElementById('dicomImage').src = images[index].image_data;
+            
+            // Update slice info
+            document.getElementById('currentSlice').textContent = index + 1;
+            document.getElementById('sliceSlider').value = index;
+            
+            // Update metadata
+            updateMetadata(images[index]);
+            
+            // Update button states
+            updateButtonStates();
+        }
+        
+        function updateMetadata(imageData) {
+            if (imageData.info) {
+                document.getElementById('metaFilename').textContent = imageData.filename;
+                document.getElementById('metaPatientName').textContent = imageData.info.patient_name || 'Unknown';
+                document.getElementById('metaPatientId').textContent = imageData.info.patient_id || 'Unknown';
+                document.getElementById('metaStudyDate').textContent = imageData.info.study_date || 'Unknown';
+                document.getElementById('metaInstanceNumber').textContent = imageData.info.instance_number || 'Unknown';
+                document.getElementById('metaSliceLocation').textContent = parseFloat(imageData.info.slice_location || 0).toFixed(2);
+                document.getElementById('metaSeriesDescription').textContent = imageData.info.series_description || 'Unknown';
+                if (imageData.info.image_size) {
+                    document.getElementById('metaImageSize').textContent = imageData.info.image_size;
+                }
+            }
+        }
+        
+        function updateButtonStates() {
+            document.getElementById('firstBtn').disabled = currentSliceIndex === 0;
+            document.getElementById('prevBtn').disabled = currentSliceIndex === 0;
+            document.getElementById('nextBtn').disabled = currentSliceIndex === images.length - 1;
+            document.getElementById('lastBtn').disabled = currentSliceIndex === images.length - 1;
+        }
+        
+        function nextSlice() {
+            if (currentSliceIndex < images.length - 1) {
+                goToSlice(currentSliceIndex + 1);
+            }
+        }
+        
+        function previousSlice() {
+            if (currentSliceIndex > 0) {
+                goToSlice(currentSliceIndex - 1);
+            }
+        }
+        
+        function togglePlayback() {
+            if (isPlaying) {
+                stopPlayback();
+            } else {
+                startPlayback();
+            }
+        }
+        
+        function startPlayback() {
+            isPlaying = true;
+            document.getElementById('playBtn').innerHTML = '⏸ Pause';
+            document.getElementById('playBtn').className = 'btn btn-warning btn-nav';
+            
+            playbackInterval = setInterval(() => {
+                if (currentSliceIndex < images.length - 1) {
+                    nextSlice();
+                } else {
+                    // Loop back to start
+                    goToSlice(0);
+                }
+            }, 1000 / playbackSpeed);
+        }
+        
+        function stopPlayback() {
+            isPlaying = false;
+            document.getElementById('playBtn').innerHTML = '▶ Play';
+            document.getElementById('playBtn').className = 'btn btn-success btn-nav';
+            
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+        }
+        
+        function updatePlaybackSpeed(speed) {
+            playbackSpeed = parseInt(speed);
+            document.getElementById('speedValue').textContent = speed;
+            
+            // Restart playback with new speed if currently playing
+            if (isPlaying) {
+                stopPlayback();
+                startPlayback();
+            }
+        }
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            switch(e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    previousSlice();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    nextSlice();
+                    break;
+                case ' ':
+                    e.preventDefault();
+                    togglePlayback();
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    goToSlice(0);
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    goToSlice(images.length - 1);
+                    break;
+            }
+        });
+        
+        // Initialize
+        updateButtonStates();
+        
+        // Add help text
+        document.addEventListener('DOMContentLoaded', function() {
+            const helpText = document.createElement('div');
+            helpText.className = 'alert alert-info mt-3';
+            helpText.innerHTML = '<strong>Keyboard Shortcuts:</strong> ← → (navigate), Space (play/pause), Home/End (first/last slice)';
+            document.querySelector('.container-fluid').appendChild(helpText);
+        });
+    </script>
 </body>
 </html>
