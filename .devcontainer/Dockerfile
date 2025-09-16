@@ -29,10 +29,6 @@ RUN groupadd --gid $USER_GID $USERNAME \
 # Set work directory
 WORKDIR /workspace
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
-
 # Change ownership of workspace to vscode user
 RUN chown -R $USERNAME:$USERNAME /workspace
 
